@@ -1,0 +1,20 @@
+[project]
+name = "resume-genie"
+version = "0.1.0"
+description = "AI-powered resume tools: checker, scorer, cover letter generator, and career coach"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain_xai",
+    "langchain_community",
+    "pypdf",
+    "langchain_core",
+    "sentence_transformers",
+    "streamlit",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "jupyter",
+    "ipython",
+]

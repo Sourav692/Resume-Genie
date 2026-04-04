@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(gh auth status)",
-      "Bash(gh repo create Resume-Genie --public --source=. --push)"
+      "Bash(gh repo create Resume-Genie --public --source=. --push)",
+      "Bash(git push -u origin main)",
+      "Bash(uv --version)"
     ]
   }
 }
