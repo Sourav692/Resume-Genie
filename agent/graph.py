@@ -1,3 +1,6 @@
+import logging
+import time
+
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import AIMessage
 from langchain_groq import ChatGroq
@@ -10,6 +13,18 @@ from agent.tools import (
     run_resume_checker,
     run_career_coach,
 )
+
+# ── Logger setup ─────────────────────────────────
+logger = logging.getLogger("resume_genie.agent")
+
+# Only add handler if none exist (avoids duplicates on Streamlit reruns)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter("[%(name)s] %(message)s")
+    )
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
 # Tools that require a job description
 JD_REQUIRED_TOOLS = {"cover_letter", "resume_scorer"}
@@ -37,6 +52,12 @@ def build_graph(llm: ChatGroq):
         resume_status = "uploaded" if resume_text else "NOT uploaded"
         jd_status = "provided" if job_description else "NOT provided"
 
+        logger.info(
+            '[ROUTER]    query="%s" | resume=%s | jd=%s',
+            user_msg[:80], resume_status, jd_status,
+        )
+
+        t0 = time.time()
         decision = llm.invoke(
             ROUTER_PROMPT.format(
                 resume_status=resume_status,
@@ -44,15 +65,26 @@ def build_graph(llm: ChatGroq):
                 user_message=user_msg,
             )
         ).content.strip().lower()
+        elapsed = time.time() - t0
+
+        logger.info(
+            "[ROUTER]    decision=%s (%.2fs)", decision, elapsed
+        )
 
         if decision.startswith("multi|"):
             tools = [t.strip() for t in decision.split("|")[1].split(",")]
             # Filter out JD-required tools if no JD provided
             if not job_description:
-                tools = [t for t in tools if t not in JD_REQUIRED_TOOLS]
+                filtered = [t for t in tools if t not in JD_REQUIRED_TOOLS]
+                logger.info(
+                    "[ROUTER]    filtered chain %s → %s (no JD)", tools, filtered
+                )
+                tools = filtered
+            logger.info("[ROUTER]    tool_chain=%s", tools)
             return {"tool_choice": "multi", "tool_chain": tools, "tool_outputs": {}}
 
         if decision == "need_jd":
+            logger.info("[ROUTER]    → need_jd (asking user for JD)")
             return {
                 "tool_choice": "none",
                 "messages": [
@@ -63,33 +95,62 @@ def build_graph(llm: ChatGroq):
                 ],
             }
 
+        logger.info("[ROUTER]    → single tool: %s", decision)
         return {"tool_choice": decision, "tool_chain": None, "tool_outputs": {}}
 
     # ── Tool nodes ────────────────────────────────────
     def cover_letter_node(state: AgentState) -> dict:
+        logger.info("[NODE]      cover_letter started")
+        t0 = time.time()
         result = run_cover_letter(
             llm, state["resume_text"], state["job_description"]
+        )
+        elapsed = time.time() - t0
+        logger.info(
+            "[NODE]      cover_letter completed (%d chars, %.2fs)",
+            len(result), elapsed,
         )
         outputs = dict(state.get("tool_outputs") or {})
         outputs["cover_letter"] = result
         return {"tool_outputs": outputs}
 
     def resume_scorer_node(state: AgentState) -> dict:
+        logger.info("[NODE]      resume_scorer started")
+        t0 = time.time()
         result = run_resume_scorer(
             llm, state["resume_text"], state["job_description"]
+        )
+        elapsed = time.time() - t0
+        logger.info(
+            "[NODE]      resume_scorer completed (%d chars, %.2fs)",
+            len(result), elapsed,
         )
         outputs = dict(state.get("tool_outputs") or {})
         outputs["resume_scorer"] = result
         return {"tool_outputs": outputs}
 
     def resume_checker_node(state: AgentState) -> dict:
+        logger.info("[NODE]      resume_checker started")
+        t0 = time.time()
         result = run_resume_checker(llm, state["resume_text"])
+        elapsed = time.time() - t0
+        logger.info(
+            "[NODE]      resume_checker completed (%d chars, %.2fs)",
+            len(result), elapsed,
+        )
         outputs = dict(state.get("tool_outputs") or {})
         outputs["resume_checker"] = result
         return {"tool_outputs": outputs}
 
     def career_coach_node(state: AgentState) -> dict:
+        logger.info("[NODE]      career_coach started")
+        t0 = time.time()
         result = run_career_coach(llm, state["resume_text"], state["messages"])
+        elapsed = time.time() - t0
+        logger.info(
+            "[NODE]      career_coach completed (%d chars, %.2fs)",
+            len(result), elapsed,
+        )
         return {"messages": [AIMessage(content=result)]}
 
     # ── Responder node ────────────────────────────────
@@ -97,11 +158,17 @@ def build_graph(llm: ChatGroq):
         """Synthesize tool outputs into a final AI message."""
         outputs = state.get("tool_outputs") or {}
         if not outputs:
+            logger.info("[RESPONDER] no tool outputs — skipping")
             return {}
 
         # Single tool — return its output directly
         if len(outputs) == 1:
+            tool_name = next(iter(outputs.keys()))
             result = next(iter(outputs.values()))
+            logger.info(
+                "[RESPONDER] 1 tool output (%s) → final message (%d chars)",
+                tool_name, len(result),
+            )
             return {"messages": [AIMessage(content=result)]}
 
         # Multiple tools — combine with section headers
@@ -111,6 +178,10 @@ def build_graph(llm: ChatGroq):
             sections.append(f"## {label}\n\n{result}")
 
         combined = "\n\n---\n\n".join(sections)
+        logger.info(
+            "[RESPONDER] %d tool output(s) → final message (%d chars)",
+            len(outputs), len(combined),
+        )
         return {"messages": [AIMessage(content=combined)]}
 
     # ── Conditional routing ───────────────────────────
@@ -118,14 +189,19 @@ def build_graph(llm: ChatGroq):
         choice = state.get("tool_choice", "none")
         if choice == "multi":
             chain = state.get("tool_chain", [])
-            return chain[0] if chain else "career_coach"
+            next_node = chain[0] if chain else "career_coach"
+            logger.info("[ROUTE]     after router → %s (multi, first in chain)", next_node)
+            return next_node
         if choice in ("cover_letter", "resume_scorer", "resume_checker", "career_coach"):
+            logger.info("[ROUTE]     after router → %s", choice)
             return choice
+        logger.info("[ROUTE]     after router → END (no tool needed)")
         return "__end__"
 
     def route_after_tool(state: AgentState) -> str:
         """After a tool, chain to the next tool or go to responder."""
         if state.get("tool_choice") != "multi":
+            logger.info("[ROUTE]     after tool → responder (single tool)")
             return "responder"
 
         chain = state.get("tool_chain", [])
@@ -133,8 +209,13 @@ def build_graph(llm: ChatGroq):
 
         for tool_name in chain:
             if tool_name not in executed:
+                logger.info(
+                    "[ROUTE]     after tool → %s (next in chain, done=%s)",
+                    tool_name, executed,
+                )
                 return tool_name
 
+        logger.info("[ROUTE]     after tool → responder (chain complete)")
         return "responder"
 
     # ── Wire the graph ────────────────────────────────
