@@ -1,29 +1,14 @@
-# app.py
 import os
 import streamlit as st
-from langchain_xai import ChatXAI
+from langchain_groq import ChatGroq
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.prompts import PromptTemplate
 import tempfile
+from dotenv import load_dotenv
 
-# =============================================================================
-#   Only imports + pure Python code here — NO st.anything()
-# =============================================================================
+load_dotenv()
 
-# ────────────────────────────────────────────────
-#  Config
-# ────────────────────────────────────────────────
-
-XAI_API_KEY = "APY KEY"
-os.environ["XAI_API_KEY"] = XAI_API_KEY
-
-XAI_API_KEY = os.getenv("XAI_API_KEY") or st.secrets.get("XAI_API_KEY", "")
-
-if not XAI_API_KEY:
-    # We can't show st.error yet — do it later
-    _api_key_missing = True
-else:
-    _api_key_missing = False
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # ────────────────────────────────────────────────
 #  LLM (lazy init)
@@ -31,11 +16,9 @@ else:
 
 @st.cache_resource(show_spinner=False)
 def get_llm():
-    return ChatXAI(
-        model="grok-4",
-        api_key=XAI_API_KEY,
-        temperature=0.3,
-        max_tokens=1500,
+    return ChatGroq(
+        model="llama-3.3-70b-versatile",
+        api_key=GROQ_API_KEY,
     )
 
 # ────────────────────────────────────────────────
@@ -43,15 +26,18 @@ def get_llm():
 # ────────────────────────────────────────────────
 
 COVER_LETTER_PROMPT = PromptTemplate.from_template(
-    """Write a professional, compelling cover letter (300–450 words) tailored specifically to the job description below.
-Emphasize the candidate's most relevant experience, skills, achievements and qualifications that directly match or exceed the job requirements.
+    """Write a professional, compelling cover letter (300-450 words) tailored
+specifically to the job description below.
+
+Emphasize the candidate's most relevant experience, skills, achievements and
+qualifications that directly match or exceed the job requirements.
 Use concrete examples from the resume where possible.
 Show enthusiasm for the role and company without fabricating information.
-
 Structure the letter in standard business format:
 - Header (date, employer's contact if known, or just salutation)
-- Opening paragraph: state the position and how you found it + brief why you're a strong fit
-- 1–2 body paragraphs: highlight strongest matching qualifications with evidence
+- Opening paragraph: state the position and how you found it + brief why
+  you're a strong fit
+- 1-2 body paragraphs: highlight strongest matching qualifications with evidence
 - Closing paragraph: reiterate interest, call to action, thanks
 
 Job Description:
@@ -64,25 +50,21 @@ Do not invent any experience, skills or facts not present in the resume.
 """
 )
 
-# =============================================================================
-#   FIRST Streamlit command — must be set_page_config()
-# =============================================================================
+# ────────────────────────────────────────────────
+#  Streamlit UI
+# ────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="AI Cover Letter Generator (Grok)",
+    page_title="AI Cover Letter Generator",
     page_icon="✉️",
     layout="wide"
 )
 
-# =============================================================================
-#   Now it's safe to use any st. command
-# =============================================================================
-
 st.title("✉️ AI-Powered Cover Letter Generator")
-st.markdown("Upload your resume (PDF) + paste the job description → get a tailored cover letter powered by **Grok**.")
+st.markdown("Upload your resume (PDF) + paste the job description → get a tailored cover letter.")
 
-if _api_key_missing:
-    st.error("XAI_API_KEY not found. Please set it in environment variables or `.streamlit/secrets.toml`.")
+if not GROQ_API_KEY:
+    st.error("GROQ_API_KEY not found. Please set it in your .env file.")
     st.stop()
 
 llm = get_llm()
@@ -137,7 +119,7 @@ if generate_clicked:
                 st.error(f"Could not read PDF: {e}")
                 st.stop()
 
-        with st.spinner("Generating cover letter with Grok…"):
+        with st.spinner("Generating cover letter…"):
             try:
                 chain = COVER_LETTER_PROMPT | llm
 
@@ -168,6 +150,5 @@ if generate_clicked:
 
 st.markdown("---")
 st.caption(
-    "Powered by xAI Grok • Always review & personalize the output • "
-    "Make sure your API key has credits"
+    "Powered by Groq (llama-3.3-70b-versatile) • Always review & personalize the output"
 )

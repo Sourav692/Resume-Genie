@@ -1,74 +1,63 @@
-# app.py
 import streamlit as st
-from langchain_xai import ChatXAI
+from langchain_groq import ChatGroq
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.prompts import PromptTemplate
 import os
 import tempfile
+from dotenv import load_dotenv
+
+load_dotenv()
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # ───────────────────────────────────────────────
 #  Config
 # ───────────────────────────────────────────────
-st.set_page_config(page_title="Resume Checker (Grok)", layout="wide")
+st.set_page_config(page_title="Resume Checker", layout="wide")
 
-XAI_API_KEY = "APY KEY"
-os.environ["XAI_API_KEY"] = XAI_API_KEY
-
-# You can also use st.secrets["XAI_API_KEY"] in production
-XAI_API_KEY = os.getenv("XAI_API_KEY") or st.secrets.get("XAI_API_KEY")
-
-if not XAI_API_KEY:
-    st.error("XAI_API_KEY not found. Please set it in environment variables or st.secrets.")
+if not GROQ_API_KEY:
+    st.error("GROQ_API_KEY not found. Please set it in your .env file.")
     st.stop()
 
 # ───────────────────────────────────────────────
 #  LLM
 # ───────────────────────────────────────────────
-@st.cache_resource(show_spinner="Initializing Grok model...")
+@st.cache_resource(show_spinner="Initializing model...")
 def get_llm():
-    return ChatXAI(
-        model="grok-4",           # or "grok-beta" etc. — check what's currently available
-        api_key=XAI_API_KEY,
-        temperature=0.1,
-        max_tokens=2000,
+    return ChatGroq(
+        model="llama-3.3-70b-versatile",
+        api_key=GROQ_API_KEY,
     )
 
 llm = get_llm()
 
 # ───────────────────────────────────────────────
-#  Prompt (same as yours)
+#  Prompt
 # ───────────────────────────────────────────────
 EVAL_PROMPT = """
-You are an advanced resume evaluation assistant. Analyze the provided resume text and 
-score it out of 100 based on the following criteria: clarity, relevance, format, comprehensiveness, and keywords/ATS-friendliness.
+    You are an advanced resume evaluation assistant. Analyze the provided
+    resume in the context document and score it out of 100 based on the
+    following criteria: clarity, relevance, format, comprehensiveness,
+    and keywords.
 
-Your response MUST follow this exact structure:
+    Your response should be structured as follows:
 
-1. **Score**: X/100  
-2. **Strengths**:  
-   • point one  
-   • point two  
-   • point three (minimum 3)  
-3. **Weaknesses / Areas for Improvement**:  
-   • point one  
-   • point two  
-   • point three (minimum 3)  
-4. **Skills Explicitly Mentioned**:  
-   • skill 1  
-   • skill 2  
-   ...  
-5. **Recommended Additional Skills**: (to make the resume stronger / more ATS-friendly / future-proof)  
-   • suggestion 1  
-   • suggestion 2  
-   ...  
-6. **Suggested Next Career Steps / Roles**:  
-   • realistic next role 1  
-   • realistic next role 2  
-   • longer-term direction (optional)
+    1. **Score**: Provide the score out of 100.
+    2. **Strengths**: List at least three strengths found in the resume.
+    3. **Weaknesses**: List at least three weaknesses or areas for
+       improvement in the resume.
+    4. **Skills Mentioned**: Identify and list the skills that are
+       explicitly mentioned in the resume.
+    5. **Recommended Skills**: Suggest additional skills that could
+       enhance the resume's effectiveness.
+    6. **Next Career Path**: Suggest what should be the next career
+       paths for this candidate.
 
-Be specific, honest, constructive and professional.  
-Resume text:  
-{context}
+    Please ensure your analysis is clear and concise, providing
+    actionable insights for improvement.
+
+    Resume:
+    {context}
 """
 
 prompt_template = PromptTemplate(
@@ -79,7 +68,7 @@ prompt_template = PromptTemplate(
 # ───────────────────────────────────────────────
 #  UI
 # ───────────────────────────────────────────────
-st.title("📄 Resume Checker powered by Grok-4 (xAI)")
+st.title("📄 Resume Checker")
 st.markdown("Upload your resume (PDF) → get a detailed score & improvement suggestions")
 
 col1, col2 = st.columns([3, 2])
@@ -95,7 +84,7 @@ with col1:
     evaluate_button = st.button("Evaluate Resume", type="primary", disabled=not uploaded_file)
 
 if evaluate_button and uploaded_file:
-    with st.spinner("Reading PDF... → Extracting text... → Asking Grok to evaluate..."):
+    with st.spinner("Reading PDF → Evaluating resume..."):
         try:
             # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
@@ -114,18 +103,25 @@ if evaluate_button and uploaded_file:
                 st.error("No readable text was extracted from the PDF.")
                 st.stop()
 
-            # Prepare and invoke
-            chain = prompt_template | llm
-            response = chain.invoke({"context": context})
+            # Prepare and stream
+            formatted_prompt = prompt_template.format(context=context)
 
-            # ── Output ────────────────────────────────────────
             st.subheader("Evaluation Result")
-            st.markdown(response.content)
+
+            response_container = st.empty()
+            full_response = ""
+
+            for chunk in llm.stream(formatted_prompt):
+                content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                full_response += content
+                response_container.markdown(full_response + "▌")
+
+            response_container.markdown(full_response)
 
         except Exception as e:
             st.error("An error occurred during processing.")
             st.exception(e)
 
-# Footer / credits
+# Footer
 st.markdown("---")
-st.caption("Built with Streamlit + LangChain + Grok-4 (xAI) • January 2026")
+st.caption("Powered by Groq (llama-3.3-70b-versatile)")

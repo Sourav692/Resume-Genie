@@ -4,7 +4,10 @@
       "Bash(gh auth status)",
       "Bash(gh repo create Resume-Genie --public --source=. --push)",
       "Bash(git push -u origin main)",
-      "Bash(uv --version)"
+      "Bash(uv --version)",
+      "Bash(git push)",
+      "Read(//Users/sourav.banerjee/.claude/skills/excalidraw-diagram/references/**)",
+      "Bash(uv run python render_excalidraw.py /Users/sourav.banerjee/Documents/Codebases/AI_Engineering/Resume-Genie/architecture.excalidraw)"
     ]
   }
 }

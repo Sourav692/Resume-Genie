@@ -1,26 +1,25 @@
 import streamlit as st
-from langchain_xai import ChatXAI
+from langchain_groq import ChatGroq
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 import os
 import tempfile
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Set up the Streamlit app
 st.title("Resume-Based Career Coach Chatbot")
 
-XAI_API_KEY = "APY KEY"
-os.environ["XAI_API_KEY"] = XAI_API_KEY
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Assume API key is set in environment or secrets; adjust as needed
-api_key = os.getenv("XAI_API_KEY")  # Or use st.secrets["XAI_API_KEY"] in Streamlit Cloud
-
-if not api_key:
-    st.error("XAI_API_KEY not found. Please set it in your environment.")
+if not GROQ_API_KEY:
+    st.error("GROQ_API_KEY not found. Please set it in your .env file.")
     st.stop()
 
-chat = ChatXAI(
-    model="grok-4",
-    api_key=api_key
+chat = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    api_key=GROQ_API_KEY,
 )
 
 # Initialize session state for chat history and resume context
@@ -74,7 +73,7 @@ system_message = SystemMessage(
 # Split the screen into two columns: left for resume, right for chat
 left_col, right_col = st.columns(2)
 
-# Left column: Display resume text (since Streamlit doesn't natively embed PDFs nicely; use text for simplicity)
+# Left column: Display resume text
 with left_col:
     st.subheader("Your Resume")
     with st.expander("View Resume Content", expanded=True):
@@ -109,7 +108,7 @@ with right_col:
             response_text = ""
             for chunk in chat.stream(messages):
                 response_text += chunk.content
-                response_placeholder.markdown(response_text + "▌")  # Cursor for streaming effect
+                response_placeholder.markdown(response_text + "▌")
 
             # Finalize without cursor
             response_placeholder.markdown(response_text)
@@ -117,5 +116,5 @@ with right_col:
         # Append AI message to history
         st.session_state.chat_history.append(AIMessage(content=response_text))
 
-        # Rerun to update the UI (optional, but ensures smooth flow)
+        # Rerun to update the UI
         st.rerun()
