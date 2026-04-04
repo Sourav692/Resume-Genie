@@ -12,6 +12,16 @@ dependencies = [
     "streamlit",
 ]
 
+[tool.setuptools]
+py-modules = [
+    "ai_career_coach",
+    "cover_letter_generator",
+    "demo",
+    "main_dashboard",
+    "resume_checker",
+    "resume_scorer",
+]
+
 [project.optional-dependencies]
 dev = [
     "pytest",
