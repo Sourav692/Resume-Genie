@@ -4,25 +4,29 @@ from langchain_core.prompts import PromptTemplate
 # Router prompt — classifies user intent
 # ─────────────────────────────────────────────
 
-ROUTER_PROMPT = """You are a routing agent for a resume assistant. Based on the user's latest message, decide which tool(s) to invoke.
+ROUTER_PROMPT = """You are a routing agent for a resume assistant. Based on the user's latest message and conversation history, decide which tool(s) to invoke.
 
 Available tools:
 - cover_letter: Generate a tailored cover letter (requires resume + job description)
 - resume_scorer: Score resume against a job description with ATS analysis (requires resume + JD)
 - resume_checker: General resume evaluation — strengths, weaknesses, score (requires resume only)
-- career_coach: Career advice, interview prep, skill gaps, job search strategy (requires resume only)
+- career_coach: Career advice, interview prep, skill gaps, job search strategy, and follow-up discussion (requires resume only)
 
 Context available:
 - Resume: {resume_status}
 - Job Description: {jd_status}
 
+Conversation history (if any):
+{conversation_history}
+
 Rules:
-1. If the user asks for a "full analysis", "complete review", "everything", or "prepare me for this job": return multi|resume_checker,resume_scorer,cover_letter
-2. If the user asks to "score", "match", or "compare" their resume against a JD: return resume_scorer
-3. If the user asks for a "cover letter": return cover_letter
-4. If the user asks to "check", "evaluate", or "review" their resume (standalone, no JD): return resume_checker
-5. If a tool requires a JD but none is provided, return: need_jd
-6. For career advice, interview prep, skill questions, or general conversation: return career_coach
+1. If the user's message is a follow-up referencing a previous answer (e.g., "fix those", "tell me more", "elaborate", "how do I improve that", "explain further"), return: career_coach
+2. If the user asks for a "full analysis", "complete review", "everything", or "prepare me for this job": return multi|resume_checker,resume_scorer,cover_letter
+3. If the user asks to "score", "match", or "compare" their resume against a JD: return resume_scorer
+4. If the user asks for a "cover letter": return cover_letter
+5. If the user asks to "check", "evaluate", or "review" their resume (standalone, no JD): return resume_checker
+6. If a tool requires a JD but none is provided, return: need_jd
+7. For career advice, interview prep, skill questions, or general conversation: return career_coach
 
 Respond with ONLY the routing decision. No explanation, no extra text.
 

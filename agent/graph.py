@@ -52,6 +52,17 @@ def build_graph(llm: ChatGroq):
         resume_status = "uploaded" if resume_text else "NOT uploaded"
         jd_status = "provided" if job_description else "NOT provided"
 
+        # Build conversation history from prior messages (last 3 exchanges max)
+        prior_messages = state["messages"][:-1]  # exclude current user message
+        if prior_messages:
+            history_lines = []
+            for m in prior_messages[-6:]:  # last 6 messages ≈ 3 exchanges
+                role = "User" if m.type == "human" else "Assistant"
+                history_lines.append(f"{role}: {m.content[:300]}")
+            conversation_history = "\n".join(history_lines)
+        else:
+            conversation_history = "(no prior messages)"
+
         logger.info(
             '[ROUTER]    query="%s" | resume=%s | jd=%s',
             user_msg[:80], resume_status, jd_status,
@@ -63,6 +74,7 @@ def build_graph(llm: ChatGroq):
                 resume_status=resume_status,
                 jd_status=jd_status,
                 user_message=user_msg,
+                conversation_history=conversation_history,
             )
         ).content.strip().lower()
         elapsed = time.time() - t0
@@ -80,8 +92,36 @@ def build_graph(llm: ChatGroq):
                     "[ROUTER]    filtered chain %s → %s (no JD)", tools, filtered
                 )
                 tools = filtered
+
+            # If filtering reduced to a single tool, treat as single-tool mode
+            if len(tools) == 1:
+                logger.info("[ROUTER]    → single tool: %s (from filtered multi)", tools[0])
+                return {"tool_choice": tools[0], "tool_chain": None, "tool_outputs": {}}
+
+            if not tools:
+                logger.info("[ROUTER]    → no tools left after filtering, falling back to career_coach")
+                return {"tool_choice": "career_coach", "tool_chain": None, "tool_outputs": {}}
+
             logger.info("[ROUTER]    tool_chain=%s", tools)
             return {"tool_choice": "multi", "tool_chain": tools, "tool_outputs": {}}
+
+        # Programmatic guard: if LLM picks a JD-required tool but no JD exists,
+        # override to need_jd regardless of what the LLM returned
+        if decision in JD_REQUIRED_TOOLS and not job_description:
+            logger.info(
+                "[ROUTER]    → need_jd (LLM chose %s but no JD provided — overriding)",
+                decision,
+            )
+            return {
+                "tool_choice": "none",
+                "messages": [
+                    AIMessage(
+                        content=f"I'd need a job description to generate a "
+                        f"{TOOL_LABELS.get(decision, decision).lower()}. "
+                        "Please paste one in the sidebar or include it in your message."
+                    )
+                ],
+            }
 
         if decision == "need_jd":
             logger.info("[ROUTER]    → need_jd (asking user for JD)")
